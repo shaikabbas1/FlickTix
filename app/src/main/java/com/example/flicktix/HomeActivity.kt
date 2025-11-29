@@ -32,6 +32,9 @@ import com.google.firebase.firestore.FirebaseFirestore
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class HomeActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -68,11 +71,22 @@ data class Movie(
     val isComingSoon: Boolean = false
 )
 
+data class Booking(
+    val id: String = "",
+    val movieTitle: String = "",
+    val cinema: String = "",
+    val tickets: Int = 0,
+    val totalPrice: Int = 0,
+    val paymentMethod: String = "",
+    val bookingTime: Long = 0L
+)
+
 // ------------ HOME TABS ------------
 
 enum class HomeTab {
     BOOKING,
     PAYMENT,
+    HISTORY,
     PROFILE
 }
 
@@ -183,7 +197,7 @@ fun HomeScreen(
         ) {
             when (selectedTab) {
                 HomeTab.BOOKING -> {
-                    // --- BOOKING TAB CONTENT (your existing home screen) ---
+                    // --- BOOKING TAB CONTENT (home screen) ---
                     Column(
                         modifier = Modifier.fillMaxSize()
                     ) {
@@ -271,7 +285,6 @@ fun HomeScreen(
                                     MovieCard(
                                         movie = movie,
                                         onBookClick = {
-                                            // For coming soon, you can still allow "Notify Me" or same payment flow
                                             selectedMovieForPayment = movie
                                             selectedTab = HomeTab.PAYMENT
                                         },
@@ -304,6 +317,11 @@ fun HomeScreen(
                 HomeTab.PAYMENT -> {
                     // --- PAYMENT TAB CONTENT ---
                     PaymentScreen(selectedMovie = selectedMovieForPayment)
+                }
+
+                HomeTab.HISTORY -> {
+                    // --- HISTORY TAB CONTENT ---
+                    HistoryScreen()
                 }
 
                 HomeTab.PROFILE -> {
@@ -391,6 +409,12 @@ fun HomeBottomBar(
             label = { Text("Payment") }
         )
         NavigationBarItem(
+            selected = selectedTab == HomeTab.HISTORY,
+            onClick = { onTabSelected(HomeTab.HISTORY) },
+            icon = { Text("📜") },
+            label = { Text("History") }
+        )
+        NavigationBarItem(
             selected = selectedTab == HomeTab.PROFILE,
             onClick = { onTabSelected(HomeTab.PROFILE) },
             icon = { Text("👤") },
@@ -423,12 +447,20 @@ fun PaymentScreen(selectedMovie: Movie?) {
     }
 
     var tickets by remember { mutableStateOf("1") }
-    val pricePerTicket = 10 // simple fixed price
+
+    // Each ticket is £8
+    val pricePerTicket = 8
     val ticketCount = tickets.toIntOrNull() ?: 0
     val totalPrice = ticketCount * pricePerTicket
 
+    // Payment method: Cash or Card
+    var selectedPaymentMethod by remember { mutableStateOf<String?>(null) }
+
     // For showing success popup
     var showSuccessDialog by remember { mutableStateOf(false) }
+
+    val auth = FirebaseAuth.getInstance()
+    val db = FirebaseFirestore.getInstance()
 
     Column(
         modifier = Modifier
@@ -474,24 +506,93 @@ fun PaymentScreen(selectedMovie: Movie?) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        // Price breakdown like a real app
         Text(
-            text = "Price per ticket: ₹$pricePerTicket",
+            text = "Price per ticket: £$pricePerTicket",
             style = MaterialTheme.typography.bodyMedium
         )
+
         Text(
-            text = "Total: ₹$totalPrice",
+            text = "Tickets: $ticketCount x £$pricePerTicket",
+            style = MaterialTheme.typography.bodyMedium
+        )
+
+        Text(
+            text = "Total: £$totalPrice",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold
         )
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // Payment method selection
+        Text(
+            text = "Payment method",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Column {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clickable { selectedPaymentMethod = "Cash" }
+                    .padding(vertical = 4.dp)
+            ) {
+                RadioButton(
+                    selected = selectedPaymentMethod == "Cash",
+                    onClick = { selectedPaymentMethod = "Cash" }
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(text = "Cash")
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clickable { selectedPaymentMethod = "Card" }
+                    .padding(vertical = 4.dp)
+            ) {
+                RadioButton(
+                    selected = selectedPaymentMethod == "Card",
+                    onClick = { selectedPaymentMethod = "Card" }
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(text = "Card")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
         Button(
             onClick = {
-                // Dummy payment success -> show popup
-                showSuccessDialog = true
+                val user = auth.currentUser
+                val method = selectedPaymentMethod ?: "Unknown"
+
+                val bookingData = hashMapOf(
+                    "userId" to (user?.uid ?: "guest"),
+                    "movieTitle" to selectedMovie.title,
+                    "cinema" to selectedMovie.cinema,
+                    "tickets" to ticketCount,
+                    "totalPrice" to totalPrice,
+                    "paymentMethod" to method,
+                    "bookingTime" to System.currentTimeMillis()
+                )
+
+                // Save booking in Firestore
+                db.collection("bookings")
+                    .add(bookingData)
+                    .addOnSuccessListener {
+                        showSuccessDialog = true
+                    }
+                    .addOnFailureListener {
+                        // Even if save fails, you could show an error or still show dialog
+                        showSuccessDialog = true
+                    }
             },
-            enabled = ticketCount > 0,
+            enabled = ticketCount > 0 && selectedPaymentMethod != null,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(48.dp),
@@ -524,6 +625,154 @@ fun PaymentScreen(selectedMovie: Movie?) {
     }
 }
 
+// ------------ HISTORY SCREEN ------------
+
+@Composable
+fun HistoryScreen() {
+    val db = remember { FirebaseFirestore.getInstance() }
+    val auth = FirebaseAuth.getInstance()
+    val user = auth.currentUser
+
+    val bookings = remember { mutableStateListOf<Booking>() }
+    var isLoading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(user?.uid) {
+        if (user == null) {
+            isLoading = false
+            return@LaunchedEffect
+        }
+
+        db.collection("bookings")
+            .whereEqualTo("userId", user.uid)
+            .addSnapshotListener { snapshot, e ->
+                if (e != null) {
+                    isLoading = false
+                    return@addSnapshotListener
+                }
+
+                val docs = snapshot?.documents ?: emptyList()
+                bookings.clear()
+
+                for (doc in docs) {
+                    val id = doc.id
+                    val movieTitle = doc.getString("movieTitle") ?: ""
+                    val cinema = doc.getString("cinema") ?: ""
+                    val tickets = (doc.getLong("tickets") ?: 0L).toInt()
+                    val totalPrice = (doc.getLong("totalPrice") ?: 0L).toInt()
+                    val paymentMethod = doc.getString("paymentMethod") ?: ""
+                    val bookingTime = doc.getLong("bookingTime") ?: 0L
+
+                    bookings.add(
+                        Booking(
+                            id = id,
+                            movieTitle = movieTitle,
+                            cinema = cinema,
+                            tickets = tickets,
+                            totalPrice = totalPrice,
+                            paymentMethod = paymentMethod,
+                            bookingTime = bookingTime
+                        )
+                    )
+                }
+
+                // Sort latest first
+                bookings.sortByDescending { it.bookingTime }
+                isLoading = false
+            }
+    }
+
+    Column(
+        modifier = Modifier.fillMaxSize()
+    ) {
+        Text(
+            text = "Booking History",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        if (user == null) {
+            Text(
+                text = "Please log in to view your booking history.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            return
+        }
+
+        if (isLoading) {
+            Text(
+                text = "Loading bookings...",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            return
+        }
+
+        if (bookings.isEmpty()) {
+            Text(
+                text = "No bookings yet.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+        } else {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                items(bookings, key = { it.id }) { booking ->
+                    BookingCard(booking)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun BookingCard(booking: Booking) {
+    val dateFormat = remember {
+        SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
+    }
+    val dateText = dateFormat.format(Date(booking.bookingTime))
+
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        tonalElevation = 3.dp,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp)
+        ) {
+            Text(
+                text = booking.movieTitle,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = booking.cinema,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Tickets: ${booking.tickets}",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Text(
+                text = "Total: £${booking.totalPrice}",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Text(
+                text = "Payment: ${booking.paymentMethod}",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Date: $dateText",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
 
 // ------------ PROFILE SCREEN ------------
 
