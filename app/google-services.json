@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1092495978428",
+    "project_id": "flicktix-abc46",
+    "storage_bucket": "flicktix-abc46.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1092495978428:android:62b94af8d6897dbbe085b9",
+        "android_client_info": {
+          "package_name": "com.example.flicktix"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDj7ZcB83slm-4_9qDcRbDUlcs6hVJ9_fE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
