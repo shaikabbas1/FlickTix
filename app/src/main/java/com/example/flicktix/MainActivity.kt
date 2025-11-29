@@ -22,6 +22,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.flicktix.ui.theme.FlickTixTheme
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
@@ -76,8 +77,15 @@ fun AppNavigator() {
             )
         }
         composable("home") {
-            // Your FlickTix home screen
-            HomeScreen()
+            // FlickTix home screen with logout
+            HomeScreen(
+                onLogoutClick = {
+                    FirebaseAuth.getInstance().signOut()
+                    navController.navigate("login") {
+                        popUpTo("home") { inclusive = true }
+                    }
+                }
+            )
         }
     }
 }
@@ -88,11 +96,21 @@ fun SplashScreen(navController: NavController) {
         colors = listOf(Color(0xFF2196F3), Color(0xFF0D47A1)) // Blue gradient
     )
 
-    // Navigation delay logic
+    // Navigation delay logic + auth check
     LaunchedEffect(Unit) {
+        val user = FirebaseAuth.getInstance().currentUser
         delay(2000) // 2-second splash delay
-        navController.navigate("login") {
-            popUpTo("splash") { inclusive = true }
+
+        if (user != null) {
+            // Already logged in → go straight to home
+            navController.navigate("home") {
+                popUpTo("splash") { inclusive = true }
+            }
+        } else {
+            // Not logged in → go to login
+            navController.navigate("login") {
+                popUpTo("splash") { inclusive = true }
+            }
         }
     }
 

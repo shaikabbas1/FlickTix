@@ -1,5 +1,6 @@
 package com.example.flicktix
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -11,6 +12,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,6 +27,9 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.flicktix.ui.theme.FlickTixTheme
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
+import androidx.compose.foundation.layout.WindowInsets
 
 class HomeActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -31,7 +37,15 @@ class HomeActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             FlickTixTheme {
-                HomeScreen()
+                HomeScreen(
+                    onLogoutClick = {
+                        // Sign out the user
+                        FirebaseAuth.getInstance().signOut()
+                        // Go back to LoginActivity
+                        startActivity(Intent(this, LoginActivity::class.java))
+                        finish()
+                    }
+                )
             }
         }
     }
@@ -40,23 +54,79 @@ class HomeActivity : ComponentActivity() {
 // ------------ DATA MODEL ------------
 
 data class Movie(
-    val id: Int,
-    val title: String,
-    val genre: String,
-    val durationMinutes: Int,
-    val rating: String,        // e.g. "PG-13"
-    val language: String,      // e.g. "English"
-    val cinema: String,        // e.g. "Screen 2 · City Mall"
-    val showTimes: List<String>,
-    val isTrending: Boolean,
-    val isComingSoon: Boolean
+    val id: Int = 0,
+    val title: String = "",
+    val genre: String = "",
+    val durationMinutes: Int = 0,
+    val rating: String = "",        // e.g. "PG-13"
+    val language: String = "",      // e.g. "English"
+    val cinema: String = "",        // e.g. "Screen 2 · City Mall"
+    val showTimes: List<String> = emptyList(),
+    val isTrending: Boolean = false,
+    val isComingSoon: Boolean = false
 )
 
 // ------------ HOME SCREEN ------------
 
 @Composable
-fun HomeScreen() {
-    val allMovies = remember { sampleMovies() }
+fun HomeScreen(
+    onLogoutClick: () -> Unit
+) {
+    val db = remember { FirebaseFirestore.getInstance() }
+
+    val firestoreMovies = remember { mutableStateListOf<Movie>() }
+    var isLoading by remember { mutableStateOf(true) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    // Load movies from Firestore (collection: "movies")
+    LaunchedEffect(Unit) {
+        db.collection("movies")
+            .addSnapshotListener { snapshot, e ->
+                if (e != null) {
+                    errorMessage = "Failed to load movies."
+                    isLoading = false
+                    return@addSnapshotListener
+                }
+
+                val docs = snapshot?.documents ?: emptyList()
+                firestoreMovies.clear()
+
+                for (doc in docs) {
+                    val id = (doc.getLong("id") ?: 0L).toInt()
+                    val title = doc.getString("title") ?: ""
+                    val genre = doc.getString("genre") ?: ""
+                    val durationMinutes = (doc.getLong("durationMinutes") ?: 0L).toInt()
+                    val rating = doc.getString("rating") ?: ""
+                    val language = doc.getString("language") ?: ""
+                    val cinema = doc.getString("cinema") ?: ""
+                    val showTimes = (doc.get("showTimes") as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+                    val isTrending = doc.getBoolean("isTrending") ?: false
+                    val isComingSoon = doc.getBoolean("isComingSoon") ?: false
+
+                    firestoreMovies.add(
+                        Movie(
+                            id = id,
+                            title = title,
+                            genre = genre,
+                            durationMinutes = durationMinutes,
+                            rating = rating,
+                            language = language,
+                            cinema = cinema,
+                            showTimes = showTimes,
+                            isTrending = isTrending,
+                            isComingSoon = isComingSoon
+                        )
+                    )
+                }
+
+                errorMessage = null
+                isLoading = false
+            }
+    }
+
+    // If Firestore has data, use it. Otherwise fall back to local sample data
+    val allMovies: List<Movie> =
+        if (firestoreMovies.isNotEmpty()) firestoreMovies else sampleMovies()
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedGenre by remember { mutableStateOf("All") }
@@ -80,7 +150,7 @@ fun HomeScreen() {
     }
 
     Scaffold(
-        topBar = { HomeTopBar() }
+        topBar = { HomeTopBar(onLogoutClick = onLogoutClick) }
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -88,6 +158,23 @@ fun HomeScreen() {
                 .padding(innerPadding)
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
+            if (isLoading) {
+                Text(
+                    text = "Loading movies...",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            errorMessage?.let { msg ->
+                Text(
+                    text = msg,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
             // Search
             OutlinedTextField(
                 value = searchQuery,
@@ -162,7 +249,7 @@ fun HomeScreen() {
                     }
                 }
 
-                if (filteredNowShowing.isEmpty() && filteredComingSoon.isEmpty()) {
+                if (filteredNowShowing.isEmpty() && filteredComingSoon.isEmpty() && !isLoading) {
                     item {
                         Box(
                             modifier = Modifier
@@ -185,7 +272,9 @@ fun HomeScreen() {
 // ------------ TOP BAR ------------
 
 @Composable
-fun HomeTopBar() {
+fun HomeTopBar(
+    onLogoutClick: () -> Unit
+) {
     val gradientColors = listOf(
         Color(0xFF0D47A1),
         Color(0xFF1976D2)
@@ -203,20 +292,34 @@ fun HomeTopBar() {
             .height(72.dp),
         contentAlignment = Alignment.CenterStart
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 16.dp)
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(
-                text = "FlickTix",
-                color = Color.White,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = "Book your next movie night",
-                color = Color(0xFFBBDEFB),
-                fontSize = 13.sp
-            )
+            Column {
+                Text(
+                    text = "FlickTix",
+                    color = Color.White,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Book your next movie night",
+                    color = Color(0xFFBBDEFB),
+                    fontSize = 13.sp
+                )
+            }
+
+            IconButton(onClick = onLogoutClick) {
+                Icon(
+                    imageVector = Icons.Default.Logout,
+                    contentDescription = "Logout",
+                    tint = Color.White
+                )
+            }
         }
     }
 }
@@ -424,7 +527,7 @@ fun ComingSoonTag() {
     }
 }
 
-// ------------ SAMPLE DATA ------------
+// ------------ SAMPLE DATA (fallback if Firestore is empty) ------------
 
 fun sampleMovies(): List<Movie> = listOf(
     Movie(
@@ -507,6 +610,8 @@ fun sampleMovies(): List<Movie> = listOf(
 @Composable
 fun HomePreview() {
     FlickTixTheme {
-        HomeScreen()
+        HomeScreen(
+            onLogoutClick = {}
+        )
     }
 }

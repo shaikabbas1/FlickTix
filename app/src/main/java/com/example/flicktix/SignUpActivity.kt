@@ -17,17 +17,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.tooling.preview.Preview
 import com.google.firebase.auth.FirebaseAuth
-import com.example.flicktix.ui.theme.FlickTixTheme // change if your theme name is different
+import com.example.flicktix.ui.theme.FlickTixTheme
 
 class SignUpActivity : ComponentActivity() {
-
-    private lateinit var auth: FirebaseAuth
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-
-        auth = FirebaseAuth.getInstance()
 
         setContent {
             FlickTixTheme {
@@ -41,16 +37,6 @@ class SignUpActivity : ComponentActivity() {
                         // After successful sign up, go to Home (or Login if you prefer)
                         startActivity(Intent(this, HomeActivity::class.java))
                         finish()
-                    },
-                    onFirebaseSignUp = { email, password, onResult ->
-                        auth.createUserWithEmailAndPassword(email, password)
-                            .addOnCompleteListener { task ->
-                                if (task.isSuccessful) {
-                                    onResult(true, null)
-                                } else {
-                                    onResult(false, task.exception?.localizedMessage)
-                                }
-                            }
                     }
                 )
             }
@@ -61,8 +47,7 @@ class SignUpActivity : ComponentActivity() {
 @Composable
 fun SignUpScreen(
     onAlreadyHaveAccountClick: () -> Unit = {},
-    onSignUpSuccess: () -> Unit = {},
-    onFirebaseSignUp: (String, String, (Boolean, String?) -> Unit) -> Unit = { _, _, _ -> }
+    onSignUpSuccess: () -> Unit = {}
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -70,6 +55,9 @@ fun SignUpScreen(
 
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    // FirebaseAuth instance inside the composable
+    val auth = remember { FirebaseAuth.getInstance() }
 
     Scaffold { innerPadding ->
         Box(
@@ -156,14 +144,17 @@ fun SignUpScreen(
                         errorMessage = null
                         isLoading = true
 
-                        onFirebaseSignUp(email, password) { success, error ->
-                            isLoading = false
-                            if (success) {
-                                onSignUpSuccess()
-                            } else {
-                                errorMessage = error ?: "Sign up failed. Please try again."
+                        auth.createUserWithEmailAndPassword(email, password)
+                            .addOnCompleteListener { task ->
+                                isLoading = false
+                                if (task.isSuccessful) {
+                                    onSignUpSuccess()
+                                } else {
+                                    errorMessage =
+                                        task.exception?.localizedMessage
+                                            ?: "Sign up failed. Please try again."
+                                }
                             }
-                        }
                     },
                     modifier = Modifier
                         .fillMaxWidth()
