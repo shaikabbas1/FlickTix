@@ -30,6 +30,8 @@ import com.example.flicktix.ui.theme.FlickTixTheme
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 
 class HomeActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -66,6 +68,14 @@ data class Movie(
     val isComingSoon: Boolean = false
 )
 
+// ------------ HOME TABS ------------
+
+enum class HomeTab {
+    BOOKING,
+    PAYMENT,
+    PROFILE
+}
+
 // ------------ HOME SCREEN ------------
 
 @Composable
@@ -77,6 +87,12 @@ fun HomeScreen(
     val firestoreMovies = remember { mutableStateListOf<Movie>() }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    // Selected bottom tab
+    var selectedTab by remember { mutableStateOf(HomeTab.BOOKING) }
+
+    // Movie selected to pay for
+    var selectedMovieForPayment by remember { mutableStateOf<Movie?>(null) }
 
     // Load movies from Firestore (collection: "movies")
     LaunchedEffect(Unit) {
@@ -128,6 +144,7 @@ fun HomeScreen(
     val allMovies: List<Movie> =
         if (firestoreMovies.isNotEmpty()) firestoreMovies else sampleMovies()
 
+    // Booking tab filters
     var searchQuery by remember { mutableStateOf("") }
     var selectedGenre by remember { mutableStateOf("All") }
 
@@ -150,119 +167,148 @@ fun HomeScreen(
     }
 
     Scaffold(
-        topBar = { HomeTopBar(onLogoutClick = onLogoutClick) }
+        topBar = { HomeTopBar(onLogoutClick = onLogoutClick) },
+        bottomBar = {
+            HomeBottomBar(
+                selectedTab = selectedTab,
+                onTabSelected = { selectedTab = it }
+            )
+        }
     ) { innerPadding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
-            if (isLoading) {
-                Text(
-                    text = "Loading movies...",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-
-            errorMessage?.let { msg ->
-                Text(
-                    text = msg,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-
-            // Search
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                label = { Text("Search movies") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Genre filters
-            Text(
-                text = "Browse by genre",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                genres.forEach { genre ->
-                    GenreChip(
-                        text = genre,
-                        selected = selectedGenre == genre,
-                        onClick = { selectedGenre = genre }
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                if (filteredNowShowing.isNotEmpty()) {
-                    item {
-                        SectionHeader(title = "Now Showing")
-                    }
-                    items(filteredNowShowing, key = { it.id }) { movie ->
-                        MovieCard(
-                            movie = movie,
-                            onBookClick = {
-                                // TODO: Navigate to booking / seat selection
-                            },
-                            onCardClick = {
-                                // TODO: Navigate to movie details
-                            }
-                        )
-                    }
-                }
-
-                if (filteredComingSoon.isNotEmpty()) {
-                    item {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        SectionHeader(title = "Coming Soon")
-                    }
-                    items(filteredComingSoon, key = { it.id }) { movie ->
-                        MovieCard(
-                            movie = movie,
-                            onBookClick = {
-                                // TODO: Maybe show "Notify me" or pre-book option
-                            },
-                            onCardClick = {
-                                // TODO: Navigate to movie details
-                            }
-                        )
-                    }
-                }
-
-                if (filteredNowShowing.isEmpty() && filteredComingSoon.isEmpty() && !isLoading) {
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 40.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
+            when (selectedTab) {
+                HomeTab.BOOKING -> {
+                    // --- BOOKING TAB CONTENT (your existing home screen) ---
+                    Column(
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        if (isLoading) {
                             Text(
-                                text = "No movies match your search.",
+                                text = "Loading movies...",
                                 style = MaterialTheme.typography.bodyMedium
                             )
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+
+                        errorMessage?.let { msg ->
+                            Text(
+                                text = msg,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+
+                        // Search
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            label = { Text("Search movies") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Genre filters
+                        Text(
+                            text = "Browse by genre",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            genres.forEach { genre ->
+                                GenreChip(
+                                    text = genre,
+                                    selected = selectedGenre == genre,
+                                    onClick = { selectedGenre = genre }
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            if (filteredNowShowing.isNotEmpty()) {
+                                item {
+                                    SectionHeader(title = "Now Showing")
+                                }
+                                items(filteredNowShowing, key = { it.id }) { movie ->
+                                    MovieCard(
+                                        movie = movie,
+                                        onBookClick = {
+                                            // Book button: select movie + go to Payment tab
+                                            selectedMovieForPayment = movie
+                                            selectedTab = HomeTab.PAYMENT
+                                        },
+                                        onCardClick = {
+                                            // TODO: Navigate to movie details (optional)
+                                        }
+                                    )
+                                }
+                            }
+
+                            if (filteredComingSoon.isNotEmpty()) {
+                                item {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    SectionHeader(title = "Coming Soon")
+                                }
+                                items(filteredComingSoon, key = { it.id }) { movie ->
+                                    MovieCard(
+                                        movie = movie,
+                                        onBookClick = {
+                                            // For coming soon, you can still allow "Notify Me" or same payment flow
+                                            selectedMovieForPayment = movie
+                                            selectedTab = HomeTab.PAYMENT
+                                        },
+                                        onCardClick = {
+                                            // TODO: Navigate to movie details (optional)
+                                        }
+                                    )
+                                }
+                            }
+
+                            if (filteredNowShowing.isEmpty() && filteredComingSoon.isEmpty() && !isLoading) {
+                                item {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 40.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "No movies match your search.",
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
+                }
+
+                HomeTab.PAYMENT -> {
+                    // --- PAYMENT TAB CONTENT ---
+                    PaymentScreen(selectedMovie = selectedMovieForPayment)
+                }
+
+                HomeTab.PROFILE -> {
+                    // --- PROFILE TAB CONTENT ---
+                    ProfileScreen(onLogoutClick = onLogoutClick)
                 }
             }
         }
@@ -320,6 +366,203 @@ fun HomeTopBar(
                     tint = Color.White
                 )
             }
+        }
+    }
+}
+
+// ------------ BOTTOM NAV BAR ------------
+
+@Composable
+fun HomeBottomBar(
+    selectedTab: HomeTab,
+    onTabSelected: (HomeTab) -> Unit
+) {
+    NavigationBar {
+        NavigationBarItem(
+            selected = selectedTab == HomeTab.BOOKING,
+            onClick = { onTabSelected(HomeTab.BOOKING) },
+            icon = { Text("🎬") },
+            label = { Text("Booking") }
+        )
+        NavigationBarItem(
+            selected = selectedTab == HomeTab.PAYMENT,
+            onClick = { onTabSelected(HomeTab.PAYMENT) },
+            icon = { Text("💳") },
+            label = { Text("Payment") }
+        )
+        NavigationBarItem(
+            selected = selectedTab == HomeTab.PROFILE,
+            onClick = { onTabSelected(HomeTab.PROFILE) },
+            icon = { Text("👤") },
+            label = { Text("Profile") }
+        )
+    }
+}
+
+// ------------ PAYMENT SCREEN ------------
+
+@Composable
+fun PaymentScreen(selectedMovie: Movie?) {
+    if (selectedMovie == null) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "No movie selected.",
+                style = MaterialTheme.typography.titleMedium
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Go to the Booking tab and choose a movie.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+        return
+    }
+
+    var tickets by remember { mutableStateOf("1") }
+    val pricePerTicket = 10 // simple fixed price
+    val ticketCount = tickets.toIntOrNull() ?: 0
+    val totalPrice = ticketCount * pricePerTicket
+
+    // For showing success popup
+    var showSuccessDialog by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(top = 8.dp),
+        verticalArrangement = Arrangement.Top
+    ) {
+        Text(
+            text = "Payment",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Selected movie info
+        Text(
+            text = selectedMovie.title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            text = "${selectedMovie.genre} • ${selectedMovie.durationMinutes} min • ${selectedMovie.language}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = selectedMovie.cinema,
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Tickets input
+        OutlinedTextField(
+            value = tickets,
+            onValueChange = { tickets = it.filter { ch -> ch.isDigit() } },
+            label = { Text("Number of tickets") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            text = "Price per ticket: ₹$pricePerTicket",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Text(
+            text = "Total: ₹$totalPrice",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Button(
+            onClick = {
+                // Dummy payment success -> show popup
+                showSuccessDialog = true
+            },
+            enabled = ticketCount > 0,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Text("Pay Now")
+        }
+    }
+
+    // Success popup
+    if (showSuccessDialog) {
+        AlertDialog(
+            onDismissRequest = { showSuccessDialog = false },
+            title = {
+                Text(text = "Payment Successful")
+            },
+            text = {
+                Text(
+                    text = "Payment successful! Your ticket will be sent to the registered email."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { showSuccessDialog = false }
+                ) {
+                    Text("OK")
+                }
+            }
+        )
+    }
+}
+
+
+// ------------ PROFILE SCREEN ------------
+
+@Composable
+fun ProfileScreen(
+    onLogoutClick: () -> Unit
+) {
+    val user = FirebaseAuth.getInstance().currentUser
+    val email = user?.email ?: "Guest User"
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(top = 8.dp),
+        verticalArrangement = Arrangement.Top
+    ) {
+        Text(
+            text = "Profile",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Text(
+            text = "Email: $email",
+            style = MaterialTheme.typography.bodyLarge
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Button(
+            onClick = onLogoutClick,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Text("Logout")
         }
     }
 }
